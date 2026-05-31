@@ -139,3 +139,125 @@ def cad(ar):
     mn,sc=divmod(rc["duration"],60)
     print(c("  + Added: ","green")+c(rc["title"],"bold")+
           c(f"\n    {rc['channel']}  •  {mn}m{sc:02d}s  •  {len(cq)} cues","dim"))
+def _sc(rc,ph,qt,nv,df,xp=False):  # pylint: disable=too-many-locals
+    sc,mt,bk=0.0,[],[]
+    tl=rc["title"].lower()
+    tx=" ".join(x["text"].lower()for x in rc.get("cues",[]))
+    cx=f"{tl} {rc['channel']} {' '.join(rc.get('tags',[]))} {tx}".lower()
+    if ph in tl:
+        sc+=25.0
+        if xp:bk.append(("phrase in title",25.0))
+    elif ph in tx:
+        sc+=15.0
+        if xp:bk.append(("phrase in transcript",15.0))
+    for t in qt:
+        if t in tl:
+            pt=10.0*(1.0+m.log(nv/max(df.get(t,1),1)+1))
+            sc+=pt
+            if xp:bk.append((f"term '{t}' title",pt))
+        elif t in cx:
+            sc+=3.0
+            if xp:bk.append((f"term '{t}' body",3.0))
+    cq=rc.get("cues",[]);nc=max(len(cq),1);cp=0.0
+    for x,cu in enumerate(cq):
+        tf=sum(cu["text"].lower().count(t)for t in qt)
+        if tf>0:
+            pw=1.5 if x<nc//3 else(0.8 if x>nc*2//3 else 1.0)
+            cp+=tf*pw;sc+=tf*pw
+            if len(mt)<3:
+                mt.append(cu)
+    if xp and cp>0:
+        bk.append(("cue hits (position-weighted)",cp))
+    return sc,mt,bk
+def csr(ar):  # pylint: disable=too-many-locals
+    lb=ldb();qy=" ".join(ar.query).strip()
+    if not qy:
+        print(c("  X Empty query — pass search terms.","yellow"));return
+    ph=qy.lower();qt=[stm(t)for t in ph.split()if len(t)>2]
+    if not qt:
+        print(c(f'  X Query too short after tokenize: "{qy}"',"yellow"));return
+    nv=max(len(lb["videos"]),1);df=Ct()
+    for rc in lb["videos"].values():
+        sx=" ".join(stm(w)for w in
+            f"{rc['title']} {rc['channel']} {' '.join(rc.get('tags',[]))} "
+            f"{' '.join(x['text']for x in rc.get('cues',[]))}".lower().split())
+        for t in qt:
+            if t in sx:
+                df[t]+=1
+    ht=[]
+    for _,rc in lb["videos"].items():
+        sc,mt,bk=_sc(rc,ph,qt,nv,df,ar.explain)
+        if sc>0:
+            ht.append((sc,rc,mt,bk))
+    ht.sort(key=lambda x:x[0],reverse=True)
+    if not ht:
+        print(c(f'  No results for "{qy}"',"yellow"));return
+    print(c(f"  {len(ht)} result(s) for \"{qy}\"\n","dim"))
+    for rk,(sc,rc,mt,bk)in enumerate(ht[:ar.limit],1):
+        mn,sc2=divmod(rc["duration"],60)
+        print(c(f"  [{rk}] ","dim")+c(rc["title"],"bold","cyan"))
+        print(c(f"      {rc['channel']}  •  {mn}m{sc2:02d}s  •  score {sc:.1f}","dim"))
+        print(c(f"      {rc['url']}","dim"))
+        if ar.explain and bk:
+            for lb2,pt in bk:
+                if pt>0:
+                    print(c(f"      + {lb2}: {pt:.1f}","dim"))
+        if mt and not ar.no_cues:
+            for cu in mt:
+                print(c(f"      \" {cu['start']}  ","yellow")+
+                      c(tw.shorten(cu["text"],70),"dim"))
+def cls(_):
+    lb=ldb();vs=list(lb["videos"].values())
+    if not vs:
+        print(c("  Library empty. Try: cuevault add <url> or cuevault import file.vtt","yellow"))
+        return
+    vs.sort(key=lambda v:v["added"],reverse=True)
+    print(c(f"  {len(vs)} video(s)\n","dim"))
+    for i,rc in enumerate(vs,1):
+        mn,sc=divmod(rc["duration"],60)
+        print(c(f"  {i:3}. ","dim")+c(f"{tw.shorten(rc['title'],52):<53}","bold")+
+              c(f" {mn}m{sc:02d}s","dim"))
+def cin(ar):
+    lb=ldb();vi=rid(ar.id,lb)
+    if not vi:
+        print(c(f"  X Not found: {ar.id}","red"));sys.exit(1)
+    rc=lb["videos"][vi];mn,sc=divmod(rc["duration"],60)
+    print(c(f"\n  {rc['title']}","bold","cyan"))
+    print(c(f"  {rc['channel']}  •  {mn}m{sc:02d}s  •  {rc.get('lang','?')}","dim"))
+    print(c(f"  {rc['url']}\n","dim"));print(c("  Summary","bold"))
+    for ln in tw.wrap(rc["summary"],70):
+        print(f"    {ln}")
+    if ar.cues:
+        print(c("\n  Transcript (first 20 cues)","bold"))
+        for cu in rc.get("cues",[])[:20]:
+            print(c(f"    {cu['start']}  ","yellow")+tw.shorten(cu["text"],65))
+def cex(ar):
+    lb=ldb();ou,vd=Pt(ar.output),list(lb["videos"].values())
+    try:
+        ou.parent.mkdir(parents=True,exist_ok=True)
+        with open(ou,"w",encoding="utf-8")as f:
+            if ar.format=="jsonl":
+                for rc in vd:
+                    f.write(j.dumps(rc,ensure_ascii=False)+"\n")
+            else:
+                j.dump(vd,f,indent=2,ensure_ascii=False)
+    except OSError as e:
+        print(c(f"  X Export failed: {e}","red"));sys.exit(1)
+    print(c(f"  + Exported {len(vd)} records -> {ou}","green"))
+def ctr(ar):
+    lb=ldb();vi=rid(ar.id,lb)
+    if not vi:
+        print(c(f"  X Not found: {ar.id}","red"));sys.exit(1)
+    rc,ou=lb["videos"][vi],Pt(ar.out)
+    try:
+        ou.parent.mkdir(parents=True,exist_ok=True)
+        with open(ou,"w",encoding="utf-8")as f:
+            if ar.fmt=="csv":
+                f.write("start,end,text\n")
+                for cu in rc.get("cues",[]):
+                    tx=cu["text"].replace('"','""')
+                    f.write(f'"{cu["start"]}","{cu["end"]}","{tx}"\n')
+            else:
+                f.write(f"# {rc['title']}\n\n**Channel:** {rc['channel']}  \n")
+                f.write(f"**Summary:** {rc['summary']}\n\n## Transcript\n\n")
+                for cu in rc.get("cues",[]):
