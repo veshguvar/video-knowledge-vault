@@ -1,0 +1,2 @@
+# CueVault — YouTube transcript library (CLI uses yt-dlp, not imported)
+yt-dlp>=2024.1.0
