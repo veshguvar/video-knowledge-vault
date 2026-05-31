@@ -261,3 +261,131 @@ def ctr(ar):
                 f.write(f"# {rc['title']}\n\n**Channel:** {rc['channel']}  \n")
                 f.write(f"**Summary:** {rc['summary']}\n\n## Transcript\n\n")
                 for cu in rc.get("cues",[]):
+                    f.write(f"- `{cu['start']}` {cu['text']}\n")
+    except OSError as e:
+        print(c(f"  X Transform failed: {e}","red"));sys.exit(1)
+    print(c(f"  + Transformed -> {ou}","green"))
+def cvl(_):
+    lb=ldb();vs=lb["videos"];ok,er,rq=0,[],("title","url","duration","cues","summary")
+    for vi,rc in vs.items():
+        fx=[k for k in rq if not rc.get(k)]
+        if rc.get("duration",0)<=0:
+            fx.append("duration=0")
+        if not rc.get("cues"):
+            fx.append("no transcript")
+        if fx:
+            er.append((vi,rc.get("title","?"),fx))
+        else:
+            ok+=1
+    print(c(f"\n  Validated {len(vs)}: {ok} OK, {len(er)} issue(s)\n","bold"))
+    for _,tl,fx in er:
+        print(c(f"  [!] {tl[:50]}","yellow"))
+        for it in fx:
+            print(c(f"      - {it}","dim"))
+def crm(ar):
+    lb=ldb();vi=rid(ar.id,lb)
+    if not vi:
+        print(c(f"  X Not found: {ar.id}","red"));sys.exit(1)
+    tl=lb["videos"][vi]["title"];del lb["videos"][vi];sav(lb)
+    for f in CCH.glob(f"{vi}.*"):
+        f.unlink(missing_ok=True)
+    print(c(f"  + Removed: {tl}","green"))
+def cup(ar):
+    ytd();lb=ldb();vi=rid(ar.id,lb)
+    if not vi:
+        print(c(f"  X Not found: {ar.id}","red"));sys.exit(1)
+    rc=lb["videos"][vi]
+    try:
+        mt=fmd(rc["url"])
+    except(RuntimeError,j.JSONDecodeError)as e:
+        print(c(f"  X {e}","red"));sys.exit(1)
+    for k,mk in[("title","title"),("channel","uploader"),("duration","duration")]:
+        rc[k]=mt.get(mk,rc[k])
+    rc["tags"]=mt.get("tags",rc.get("tags",[]))[:10]
+    if ar.subs:
+        vt=fsb(rc["url"],vi,rc.get("lang","en"),True)
+        if vt:
+            cq=pvt(vt);rc["cues"],rc["summary"]=cq,gsm(cq)
+    sav(lb);print(c(f"  + Updated: {rc['title']}","green"))
+def cst(_):
+    lb=ldb();vs=lb["videos"]
+    td=sum(v.get("duration",0)for v in vs.values())
+    tc=sum(len(v.get("cues",[]))for v in vs.values())
+    hr,rm=divmod(td,3600);mn,ch=rm//60,len({v["channel"]for v in vs.values()})
+    wx=Ct(stm(w)for v in vs.values()for cu in v.get("cues",[])
+          for w in re.sub(r"[^a-z ]","",cu["text"].lower()).split()
+          if len(w)>4 and w not in SWD)
+    tp=[w for w,_ in wx.most_common(5)]
+    print(c("\n  CueVault Library Stats","bold")+"\n"+c("  -------------------------","dim"))
+    print(f"  Videos    : {c(str(len(vs)),'cyan','bold')}")
+    print(f"  Channels  : {c(str(ch),'cyan')}")
+    print(f"  Runtime   : {c(f'{hr}h {mn}m','cyan')}")
+    print(f"  Cue lines : {c(str(tc),'cyan')}")
+    if tp:
+        print(f"  Top words : {c(', '.join(tp),'cyan')}")
+    print(f"  DB path   : {c(str(DBF),'dim')}\n")
+def cim(ar):
+    ph=Pt(ar.path)
+    if not ph.is_file():
+        print(c(f"  X Not a file: {ph}","red"));sys.exit(1)
+    vi=(ar.id or ph.stem)[:11]
+    if len(vi)<11:
+        vi=vi.ljust(11,"0")
+    try:
+        cq=pvt(ph)
+    except OSError as e:
+        print(c(f"  X Read failed: {e}","red"));sys.exit(1)
+    if not cq:
+        print(c("  X No cues parsed from VTT.","red"));sys.exit(1)
+    lb=ldb();tl=ar.title or ph.stem.replace("_"," ").title()
+    sh.copy2(ph,CCH/f"{vi}.en.vtt")
+    rc={"id":vi,"url":ar.url or f"file://{ph.resolve()}",
+        "title":tl,"channel":ar.channel or"import","duration":ar.dur or 0,
+        "uploaded":"","tags":[],"added":dt.now().isoformat(),"lang":"en",
+        "summary":gsm(cq),"cues":cq}
+    lb["videos"][vi]=rc;sav(lb)
+    print(c(f"  + Imported: {tl} ({len(cq)} cues) id={vi}","green"))
+def cpl(ar):
+    lb=ldb();vi=rid(ar.id,lb)
+    if not vi:
+        print(c(f"  X Not found: {ar.id}","red"));sys.exit(1)
+    rc=lb["videos"][vi]
+    pl=ar.player or sh.which("mpv")or sh.which("vlc")or sh.which("ffplay")
+    if not pl:
+        print(c("  X No player. Install mpv, vlc, or ffplay.","red"));sys.exit(1)
+    print(c(f"  > {pl}: ","green")+c(rc["title"],"bold"))
+    su.run([pl,rc["url"]],check=False)
+CM=[("add","Add URL",[("url",{}),("--lang",{"default":"en"}),("--force",{"action":"store_true"})]),
+("import","Import VTT",[("path",{}),("--id",{"default":None}),("--title",{"default":None}),
+ ("--channel",{"default":None}),("--url",{"default":None}),("--dur",{"type":int,"default":0})]),
+("search","Search",[("query",{"nargs":"+"}),("--limit",{"type":int,"default":5}),
+ ("--no-cues",{"action":"store_true"}),("--explain",{"action":"store_true"})]),
+("list","List",[]),("validate","Validate",[]),("stats","Stats",[]),
+("info","Info",[("id",{}),("--cues",{"action":"store_true"})]),
+("export","Export",[("output",{}),("--format",{"choices":["json","jsonl"],"default":"json"})]),
+("transform","Xform",[("id",{}),("out",{}),("--fmt",{"choices":["csv","md"],"default":"csv"})]),
+("play","Play",[("id",{}),("--player",{"default":None})]),
+("remove","Remove",[("id",{})]),
+("update","Sync",[("id",{}),("--subs",{"action":"store_true"})])]
+def run():
+    print(c("\n  > CueVault","cyan","bold")+c(" - Transcript Library","dim")+"\n"+c("  "+"-"*38,"dim"))
+    p=ap.ArgumentParser(prog="cuevault",description="CueVault: YouTube transcript library")
+    sb=p.add_subparsers(dest="cmd",metavar="command")
+    for n,h,a in CM:
+        ps=sb.add_parser(n,help=h)
+        for x,k in a:
+            ps.add_argument(x,**k)
+    ar=p.parse_args()
+    dsp={"add":cad,"import":cim,"search":csr,"list":cls,"info":cin,"export":cex,
+         "transform":ctr,"validate":cvl,"remove":crm,"stats":cst,"update":cup,"play":cpl}
+    if ar.cmd in dsp:
+        dsp[ar.cmd](ar)
+    else:
+        p.print_help()
+if __name__=="__main__":
+    try:
+        run()
+    except KeyboardInterrupt:
+        print(c("\n  Interrupted.","dim"));sys.exit(130)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        print(c(f"  X Unexpected error: {e}","red"));sys.exit(1)
